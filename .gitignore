@@ -1,7 +1,8 @@
 dist/
 build/
 mgz.egg-info/
-venv/
+.venv/
 .tox/
 *.pyc
 *.sqlite
+.idea/

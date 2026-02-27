@@ -7,8 +7,15 @@ import zlib
 from enum import Enum
 from io import BytesIO
 
-import construct.core
-from construct import Adapter, Construct, Subconstruct, Tunnel
+try:
+    import construct.core
+    from construct import Adapter, Construct, Subconstruct, Tunnel
+except ImportError:
+    construct = None
+    Adapter = object
+    Construct = object
+    Subconstruct = object
+    Tunnel = object
 
 from mgz import const
 

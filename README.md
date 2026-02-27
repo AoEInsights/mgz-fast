@@ -1,118 +1,235 @@
-# mgz
+# mgz-fast
 
-Age of Empires II recorded game parsing and summarization in Python 3.
+A stripped-down version of [aoc-mgz](https://github.com/happyleavesaoc/aoc-mgz), tailored specifically for the needs of [AoE2Insights](https://aoe2insights.com). It contains only the bare essentials required for fast header and body parsing -- everything else has been removed.
 
-## Supported Versions
+## Supported Formats
 
-- Age of Kings (`.mgl`)
-- The Conquerors (`.mgx`)
-- Userpatch 1.4 (`.mgz`)
 - Userpatch 1.5 (`.mgz`)
-- HD Edition >= 4.6 (`.aoe2record`)
+- HD Edition 5.8 (`.aoe2record`)
 - Definitive Edition (`.aoe2record`)
 
-## Architecture
+## Installation
 
-The core functionality of `mgz` is a parser that produces a Python data structure based on a recorded game file. It also offers abstracted representations that make it easier to use the data.
+```bash
+pip install mgz-fast
+```
 
-### Parsers
+## Usage
 
-`mgz` offers two parsers, `fast` and `full`. The `fast` parser skips data that is rarely needed, while the `full` parser tries to parse as much as possible. Naturally, the `fast` parser is faster than the `full` parser.
-The `full` parser can do just about everything, the `fast` only maybe 80-90%. The `summary` will automatically try the `fast` parser and fall back to the `full` parser if needed.
+### Parsing the Header
 
-### Abstractions
+Extract game metadata like players, map, version, and settings from a recorded game file.
 
-Abstractions take parser output as input and return an object with normalized data that is easier to use for most cases. There are two abstractions available, `summary` and `model`. The `summary` abstraction attempts to expose the maximum amount of usable data. The `model` abstraction is more limited but automatically performs more lookups.
+```python
+from mgz.fast.header import parse
 
-## Support
+with open("match.aoe2record", "rb") as f:
+    header = parse(f)
 
-| Version | model | summary | fast (header) | fast (body) | full (header) | full (body) | 
-| --- | :-: | :-: | :-: | :-: | :-: | :-: |
-| Age of Kings (`.mgl`) | | ✓ | | ✓ | ✓ | |
-| The Conquerors (`.mgx`) | | ✓ | | ✓ | ✓ | |
-| Userpatch <= 1.4 (`.mgz`) | | ✓ | | ✓ | ✓ | ✓ |
-| Userpatch 1.5 (`.mgz`) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| HD Edition >= 4.6 | | ✓ | | ✓ | ✓ | ✓ |
-| HD Edition 5.8 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Definitive Edition <= 13.34 (`.aoe2record`) | | ✓ | | ✓ | ✓ | ✓ |
-| Definitive Edition > 13.34, <= 26.21 (`.aoe2record`) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Definitive Edition > 26.21 (`.aoe2record`) | ✓ | ✓ | ✓ | ✓ | ✓ | |
+print(header["version"])          # Version.DE
+print(header["game_version"])     # e.g. "7.7"
+print(header["save_version"])     # e.g. 13.34
+```
 
-## Examples
+### Players
 
-#### Full Parser (header) + Fast Parser (body)
+```python
+from mgz.fast.header import parse
+
+with open("match.aoe2record", "rb") as f:
+    header = parse(f)
+
+for player in header["players"]:
+    print(player["name"])
+    print(player["civilization_id"])
+    print(player["color_id"])
+    print(player["position"])     # {"x": ..., "y": ...}
+```
+
+For Definitive Edition recordings, additional player data is available:
+
+```python
+for de_player in header["de"]["players"]:
+    print(de_player["name"])
+    print(de_player["censored_name"])
+    print(de_player["team_id"])
+```
+
+### Map and Game Settings
+
+```python
+from mgz.fast.header import parse
+
+with open("match.aoe2record", "rb") as f:
+    header = parse(f)
+
+print(header["scenario"]["map_id"])
+print(header["lobby"]["seed"])
+print(header["lobby"]["population"])
+print(header["lobby"]["game_type_id"])
+print(header["metadata"]["speed"])
+```
+
+### Parsing the Body (Actions)
+
+Iterate over in-game operations like player actions, chat messages, and sync ticks.
 
 ```python
 import os
-from mgz import header, fast
+from mgz.fast import operation, meta
+from mgz.fast.header import parse
+from mgz.fast.enums import Operation, Action
 
-with open('/path/to/file', 'rb') as data:
-    eof = os.fstat(data.fileno()).st_size
-    header.parse_stream(data)
-    fast.meta(data)
-    while data.tell() < eof:
-        fast.operation(data)
+with open("match.aoe2record", "rb") as f:
+    eof = os.fstat(f.fileno()).st_size
+    header = parse(f)
+    meta(f)
+
+    while f.tell() < eof:
+        try:
+            op_type, payload = operation(f)
+        except EOFError:
+            break
+
+        if op_type == Operation.ACTION:
+            action_type, action_data = payload
+            if action_type == Action.RESIGN:
+                print(f"Player {action_data['player_id']} resigned")
+            elif action_type == Action.RESEARCH:
+                print(f"Player {action_data['player_id']} researched {action_data['technology_id']}")
+            elif action_type == Action.BUILD:
+                print(f"Player {action_data['player_id']} built {action_data['building_id']}")
+
+        elif op_type == Operation.CHAT:
+            print(f"Chat: {payload}")
 ```
 
-### Summary
+### Extracting Chat Messages
 
 ```python
-from mgz.summary import Summary
+import os
+from mgz.fast import operation, meta
+from mgz.fast.header import parse
+from mgz.fast.enums import Operation
 
-with open('/path/to/file', 'rb') as data:
-    s = Summary(data)
-    s.get_map()
-    s.get_platform()
-    # ... etc
+with open("match.aoe2record", "rb") as f:
+    eof = os.fstat(f.fileno()).st_size
+    header = parse(f)
+    meta(f)
+
+    while f.tell() < eof:
+        try:
+            op_type, payload = operation(f)
+        except EOFError:
+            break
+
+        if op_type == Operation.CHAT:
+            print(payload.decode("utf-8", errors="replace"))
 ```
 
-### Model
+### Calculating Game Duration
 
 ```python
-from mgz.model import parse_match
+import os
+from mgz.fast import operation, meta
+from mgz.fast.header import parse
+from mgz.fast.enums import Operation
 
-with open('/path/to/file', 'rb') as data:
-    match = parse_match(data)
-    match.map.name
-    match.file.perspective.number
-    # ... etc
+with open("match.aoe2record", "rb") as f:
+    eof = os.fstat(f.fileno()).st_size
+    header = parse(f)
+    meta(f)
+
+    elapsed_ms = 0
+    while f.tell() < eof:
+        try:
+            op_type, payload = operation(f)
+        except EOFError:
+            break
+
+        if op_type == Operation.SYNC:
+            increment, checksum, data = payload
+            elapsed_ms += increment
+
+    minutes = elapsed_ms / 1000 / 60
+    print(f"Game duration: {minutes:.1f} minutes")
 ```
 
-## To JSON
+## CLI Tools
 
-```python
-import json
-from mgz.model import parse_match, serialize
+Installing `mgz-fast` also provides four command-line utilities for working with recorded game files.
 
-with open('/path/to/file', 'rb') as h:
-    match = parse_match(h)
-    print(json.dumps(serialize(match), indent=2))
+### mgz-parse-header
+
+Parse the header of a recorded game and output it as JSON.
+
+```bash
+# Parse header and write JSON to file
+mgz-parse-header match.aoe2record -o header.json
+
+# Parse with debug logging (useful for troubleshooting)
+mgz-parse-header match.aoe2record --debug
+
+# Also works with ZIP archives
+mgz-parse-header match.zip -o header.json
 ```
 
-## Frequently Asked Questions
+### mgz-parse-body
 
-**Q:** Where are the end-of-game achievements/statistics?
+Parse the body (actions/events) of a recorded game. Expects an extracted body file as input (see `mgz-extract`) and outputs JSON Lines to stdout.
 
-**A:** In the `postgame` action, available only from Userpatch version.
+```bash
+# Parse body and print operations as JSON Lines
+mgz-parse-body match.body.bin
 
-**Q:** How can I tell the number of resources/kills/etc at a certain point?
+# Pretty-print each operation
+mgz-parse-body match.body.bin --indent 2
+```
 
-**A:** You can't, without replaying the match in-game.
+### mgz-extract
 
-**Q:** How does a recorded game file work?
+Extract the header and body from a recorded game into separate binary files. The header is automatically decompressed.
 
-**A:** The first portion (the `header`) is a snapshot of the initial game state. The second portion (the `body`) is a list of moves made by players. The game loads the header, then applies each move to mutate the state according to the game rules.
+```bash
+# Extract to default paths (<name>.header.bin, <name>.body.bin)
+mgz-extract match.aoe2record
 
-**Q:** How can I install this package?
+# Specify custom output paths
+mgz-extract match.aoe2record --header h.bin --body b.bin
+```
 
-**A:** `pip install mgz`
+### mgz-dump
 
-## Contribution
- - Pull requests & patches welcome
+Hex-dump arbitrary byte ranges from a recorded game's header or body. Useful for reverse engineering and debugging.
 
-## Resources
- - aoc-mgx-format: https://github.com/stefan-kolb/aoc-mgx-format
- - recage: https://github.com/goto-bus-stop/recage
- - recanalyst: http://sourceforge.net/p/recanalyst/
- - genie-rs: https://github.com/SiegeEngineers/genie-rs/tree/default/crates/genie-rec
- - bari-mgx-format: https://web.archive.org/web/20090215065209/http://members.at.infoseek.co.jp/aocai/mgx_format.html
+```bash
+# Dump first 256 bytes of the decompressed header
+mgz-dump match.aoe2record header
+
+# Dump 128 bytes starting at offset 0x2e0
+mgz-dump match.aoe2record header --offset 0x2e0 --length 128
+
+# Dump the beginning of the body
+mgz-dump match.aoe2record body --offset 0 --length 64
+```
+
+## Header Fields Reference
+
+The dictionary returned by `parse()` contains:
+
+| Key | Type | Description |
+|---|---|---|
+| `version` | `Version` | Game version (`USERPATCH15`, `DE`, `HD`) |
+| `game_version` | `str` | Version string |
+| `save_version` | `float` | Save file version |
+| `players` | `list[dict]` | Player info (name, civ, color, position, diplomacy) |
+| `map` | `dict` | Map dimensions and tile data |
+| `scenario` | `dict` | Map ID, difficulty, scenario filename |
+| `lobby` | `dict` | Seed, population, game type, chat, lock teams |
+| `metadata` | `dict` | Game speed, perspective owner, cheats |
+| `de` | `dict\|None` | DE-specific data (extended player info, settings) |
+| `hd` | `dict\|None` | HD-specific data |
+
+## License
+
+MIT
