@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mgz-fast"
+dynamic = ["version"]
+description = "Parse Age of Empires 2 recorded games."
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "happyleaves", email = "happyleaves.tfr@gmail.com" },
+]
+maintainers = [
+    { name = "aoe2insights", email = "contact@aoe2insights.com" },
+]
+requires-python = ">= 3.7"
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+]
+
+[project.urls]
+Homepage = "https://github.com/AoEInsights/aoc-mgz"
+
+[project.scripts]
+mgz-dump = "mgz.cli.dump:main"
+mgz-extract = "mgz.cli.extract:main"
+mgz-parse-header = "mgz.cli.parse_header:main"
+mgz-parse-body = "mgz.cli.parse_body:main"
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mgz"]
